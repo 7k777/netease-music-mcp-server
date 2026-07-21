@@ -2,15 +2,14 @@
 网易云音乐 MCP Server
 =====================
 基于 Python FastMCP，内置网易云音乐 API 加密逻辑。
-可直接运行，在 RikkaHub / Claude Desktop 等支持 MCP 的客户端中配置使用。
+支持 SSE 模式，适用于 RikkaHub 等只支持 HTTP/SSE 的 MCP 客户端。
 
 使用方法：
-  pip install mcp httpx cryptography
+  pip install mcp httpx cryptography uvicorn
   python netease_mcp_server.py
 
-然后在 RikkaHub 的 MCP 配置中添加：
-  - 类型: stdio
-  - 命令: python /path/to/netease_mcp_server.py
+服务启动后默认监听 http://0.0.0.0:8000
+RikkaHub MCP 配置地址填：http://<你的IP>:8000/mcp
 """
 
 import json
