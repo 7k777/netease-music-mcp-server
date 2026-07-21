@@ -5,7 +5,7 @@
 支持 SSE 模式，适用于 RikkaHub 等只支持 HTTP/SSE 的 MCP 客户端。
 
 使用方法：
-  pip install mcp httpx cryptography uvicorn
+  pip install mcp httpx cryptography
   python netease_mcp_server.py
 
 服务启动后默认监听 http://0.0.0.0:8000
@@ -15,10 +15,7 @@ RikkaHub MCP 配置地址填：http://<你的IP>:8000/mcp
 import json
 import os
 import random
-import hashlib
 import base64
-from typing import Optional
-from urllib.parse import quote
 
 import httpx
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -39,6 +36,7 @@ MODULUS = (
 PUB_KEY = "010001"
 NONCE = "0CoJUm6Qyw8W8jud"
 
+
 def aes_encrypt(text: str, key: str) -> str:
     """AES-128-CBC 加密，返回 Base64 字符串"""
     iv = b"0102030405060708"
@@ -48,6 +46,7 @@ def aes_encrypt(text: str, key: str) -> str:
     encryptor = cipher.encryptor()
     encrypted = encryptor.update(padded_data) + encryptor.finalize()
     return base64.b64encode(encrypted).decode("utf-8")
+
 
 def rsa_encrypt(text: str) -> str:
     """RSA 加密，返回十六进制字符串"""
@@ -59,10 +58,12 @@ def rsa_encrypt(text: str) -> str:
     )
     return format(result, "x")
 
+
 def get_random_secret_key(size: int = 16) -> str:
     """生成随机密钥"""
     chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     return "".join(random.choice(chars) for _ in range(size))
+
 
 def encrypt_params(params: dict) -> dict:
     """对请求参数进行加密，返回 {'params': ..., 'encSecKey': ...}"""
@@ -122,20 +123,10 @@ class NeteaseAPI:
         data = {"id": song_id, "lv": -1, "kv": -1, "tv": -1}
         return await self._weapi_request("/song/lyric", data)
 
-    async def get_song_url(self, song_id: int, br: int = 320000) -> dict:
-        """获取歌曲播放地址"""
-        data = {"ids": [song_id], "level": "standard", "encodeType": "aac", "br": br}
-        return await self._weapi_request("/song/enhance/player/url/v1", data)
-
     async def get_playlist_detail(self, playlist_id: int) -> dict:
         """获取歌单详情"""
         data = {"id": playlist_id, "n": 100, "s": 8}
         return await self._weapi_request("/v6/playlist/detail", data)
-
-    async def get_recommend_playlists(self, limit: int = 10) -> dict:
-        """获取推荐歌单"""
-        data = {"limit": limit, "offset": 0}
-        return await self._weapi_request("/v1/discovery/recommend/resource", data)
 
     async def get_top_playlists(self, cat: str = "全部", limit: int = 20, offset: int = 0) -> dict:
         """获取热门歌单"""
@@ -172,12 +163,7 @@ def _format_song(item: dict) -> str:
     description="搜索网易云音乐中的歌曲，返回歌曲列表（含 ID、歌手、专辑、时长）",
 )
 async def search_songs(keyword: str, limit: int = 20) -> str:
-    """
-    搜索网易云音乐歌曲。
-    Args:
-        keyword: 搜索关键词（歌曲名、歌手名等）
-        limit: 返回结果数量，默认 20，最大 50
-    """
+    """搜索网易云音乐歌曲"""
     if limit > 50:
         limit = 50
     result = await api.search_songs(keyword, limit=limit)
@@ -194,14 +180,10 @@ async def search_songs(keyword: str, limit: int = 20) -> str:
 
 @mcp.tool(
     name="netease_get_song_detail",
-    description="获取网易云音乐单首歌曲的详细信息（歌手、专辑、时长等）",
+    description="获取网易云音乐单首歌曲的详细信息（歌手、专辑、时长、歌词预览）",
 )
 async def get_song_detail(song_id: int) -> str:
-    """
-    获取歌曲详细信息。
-    Args:
-        song_id: 歌曲 ID
-    """
+    """获取歌曲详细信息"""
     result = await api.get_song_detail(song_id)
     if result.get("code") != 200:
         return f"获取失败：{result.get('message', '未知错误')}"
@@ -240,14 +222,10 @@ async def get_song_detail(song_id: int) -> str:
 
 @mcp.tool(
     name="netease_get_lyric",
-    description="获取网易云音乐歌曲的完整歌词",
+    description="获取网易云音乐歌曲的完整歌词（纯文本，不含时间戳）",
 )
 async def get_lyric(song_id: int) -> str:
-    """
-    获取歌曲完整歌词。
-    Args:
-        song_id: 歌曲 ID
-    """
+    """获取歌曲完整歌词"""
     result = await api.get_lyric(song_id)
     if result.get("code") != 200:
         return f"获取歌词失败：{result.get('message', '未知错误')}"
@@ -272,12 +250,7 @@ async def get_lyric(song_id: int) -> str:
     description="获取网易云音乐歌单的详细信息，包括歌单中的所有歌曲",
 )
 async def get_playlist(playlist_id: int, max_songs: int = 30) -> str:
-    """
-    获取歌单详情及歌曲列表。
-    Args:
-        playlist_id: 歌单 ID
-        max_songs: 最多返回的歌曲数量，默认 30
-    """
+    """获取歌单详情及歌曲列表"""
     result = await api.get_playlist_detail(playlist_id)
     if result.get("code") != 200:
         return f"获取歌单失败：{result.get('message', '未知错误')}"
@@ -310,12 +283,7 @@ async def get_playlist(playlist_id: int, max_songs: int = 30) -> str:
     description="搜索网易云音乐的歌单，按关键词返回歌单列表",
 )
 async def search_playlists(keyword: str, limit: int = 10) -> str:
-    """
-    搜索歌单。
-    Args:
-        keyword: 搜索关键词
-        limit: 返回数量，默认 10，最大 30
-    """
+    """搜索歌单"""
     if limit > 30:
         limit = 30
     result = await api._weapi_request("/search/get", {
@@ -353,7 +321,7 @@ async def recommend_playlists() -> str:
             play_count = pl.get("playCount", 0)
             lines.append(f"{i}. {name}（{track_count}首 · {play_count}次播放）[ID: {pl_id}]")
         return "\n".join(lines)
-    return f"获取推荐失败"
+    return "获取推荐失败"
 
 
 @mcp.tool(
@@ -361,11 +329,7 @@ async def recommend_playlists() -> str:
     description="搜索网易云音乐歌手，返回歌手信息和热门歌曲",
 )
 async def search_artist(keyword: str) -> str:
-    """
-    搜索歌手并返回热门歌曲。
-    Args:
-        keyword: 歌手名称
-    """
+    """搜索歌手并返回热门歌曲"""
     result = await api._weapi_request("/search/get", {
         "s": keyword, "type": 100, "limit": 10, "offset": 0,
     })
@@ -391,5 +355,22 @@ async def search_artist(keyword: str) -> str:
 
 
 if __name__ == "__main__":
-    print("Starting Netease Music MCP Server...")
-    mcp.run(transport="stdio")
+    import argparse
+    parser = argparse.ArgumentParser(description="网易云音乐 MCP Server")
+    parser.add_argument("--port", type=int, default=8000, help="监听端口 (默认: 8000)")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="监听地址 (默认: 0.0.0.0)")
+    parser.add_argument(
+        "--transport", type=str, default="sse",
+        choices=["sse", "stdio"],
+        help="传输模式，RikkaHub 用 sse，本地 CLI 用 stdio (默认: sse)"
+    )
+    args = parser.parse_args()
+
+    print(f"🎵 网易云音乐 MCP Server")
+    print(f"   模式: {args.transport}")
+    if args.transport == "sse":
+        print(f"   地址: http://{args.host}:{args.port}/mcp")
+    print(f"   工具: 搜索歌曲 | 歌曲详情 | 歌词 | 歌单 | 搜索歌单 | 推荐 | 歌手")
+    print("=" * 40)
+
+    mcp.run(transport=args.transport, host=args.host, port=args.port)
