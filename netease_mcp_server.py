@@ -1,8 +1,8 @@
 """
-网易云音乐 MCP Server — 无状态 Streamable HTTP
+网易云音乐 MCP Server — SSE 模式
 """
 
-import json, os, random, base64, urllib.request, urllib.parse
+import json, os, random, base64, urllib.request, urllib.parse, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
@@ -145,7 +145,22 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        self._j({"ok": True})
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(f"event: session\ndata: {json.dumps({'session_id': 'netease-mcp-1'})}\n\n".encode())
+        self.wfile.write(f"event: endpoint\ndata: /\n\n".encode())
+        self.wfile.flush()
+        try:
+            while True:
+                time.sleep(15)
+                self.wfile.write(f": heartbeat\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_POST(self):
         cl = int(self.headers.get("Content-Length", 0))
