@@ -1,10 +1,7 @@
-# Render 一键部署配置
-# 连接 GitHub 仓库后自动部署
-
 services:
   - type: web
     name: netease-music-mcp
     env: python
-    buildCommand: pip install mcp httpx cryptography
-    startCommand: python netease_mcp_server.py --port $PORT
+    buildCommand: pip install -r requirements.txt
+    startCommand: python netease_mcp_server.py
     healthCheckPath: /health
