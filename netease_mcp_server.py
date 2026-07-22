@@ -15,7 +15,8 @@ def aes_encrypt(text, key):
     iv = b"0102030405060708"
     padder = padding.PKCS7(128).padder()
     padded = padder.update(text.encode()) + padder.finalize()
-    encrypted = Cipher(algorithms.AES(key.encode()), modes.CBC(iv)).encryptor().update(padded) + Cipher(algorithms.AES(key.encode()), modes.CBC(iv)).encryptor().finalize()
+    encryptor = Cipher(algorithms.AES(key.encode()), modes.CBC(iv)).encryptor()
+    encrypted = encryptor.update(padded) + encryptor.finalize()
     return base64.b64encode(encrypted).decode()
 
 def rsa_encrypt(text):
@@ -24,7 +25,9 @@ def rsa_encrypt(text):
 def encrypt_params(params):
     text = json.dumps(params, separators=(",", ":"))
     key = "".join(random.choice("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") for _ in range(16))
-    return {"params": aes_encrypt(aes_encrypt(text, NONCE), key), "encSecKey": rsa_encrypt(key)}
+    p1 = aes_encrypt(text, NONCE)
+    p2 = aes_encrypt(p1, key)
+    return {"params": p2, "encSecKey": rsa_encrypt(key)}
 
 def weapi(endpoint, data):
     data = data or {}
@@ -44,7 +47,6 @@ TOOLS = [
     {"name": "recommend_playlists", "description": "热门推荐歌单", "inputSchema": {"type": "object", "properties": {}, "required": []}},
     {"name": "search_artist", "description": "搜索歌手", "inputSchema": {"type": "object", "properties": {"keyword": {"type": "string"}}, "required": ["keyword"]}},
 ]
-
 
 def call_tool(name, args):
     if name == "search_songs":
