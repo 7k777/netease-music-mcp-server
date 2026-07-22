@@ -2,5 +2,5 @@ services:
   - type: web
     name: netease-music-mcp
     env: python
-    buildCommand: pip install --upgrade pip && pip install fastapi httpx cryptography uvicorn
+    buildCommand: pip install cryptography
     startCommand: python netease_mcp_server.py
