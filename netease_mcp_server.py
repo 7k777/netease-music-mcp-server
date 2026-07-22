@@ -138,7 +138,7 @@ class NeteaseAPI:
 # MCP Server
 # ============================================================
 
-mcp = FastMCP("netease-music", description="网易云音乐 MCP 服务 — 搜索歌曲、获取歌词、查看歌单")
+mcp = FastMCP("netease-music")
 api = NeteaseAPI()
 
 
