@@ -2,7 +2,7 @@
 网易云音乐 MCP Server — Streamable HTTP
 """
 
-import json, os, random, base64, urllib.request, urllib.parse
+import json, os, random, base64, urllib.request, urllib.parse, time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
@@ -151,21 +151,17 @@ class Handler(BaseHTTPRequestHandler):
         self._json({})
 
     def do_GET(self):
-        # Streamable HTTP: GET 返回 SSE 流建立会话
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "keep-alive")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-        # 发送 session 事件（固定 session 便于调试）
         self.wfile.write(f"event: session\n".encode())
         self.wfile.write(f"data: {json.dumps({'session_id': 'netease-mcp-1'})}\n\n".encode())
-        # 发送 endpoint 事件，指示客户端用 POST 发消息到这里
         self.wfile.write(f"event: endpoint\n".encode())
         self.wfile.write(f"data: /\n\n".encode())
-        # 保持连接，定期发心跳
-        import time
+        self.wfile.flush()
         try:
             while True:
                 time.sleep(15)
@@ -209,9 +205,14 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[MCP] {format % args}")
 
 
+class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+    """支持多线程的 HTTP 服务器"""
+    pass
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    server = HTTPServer(("0.0.0.0", port), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     print(f"🎵 网易云 MCP Server - 端口 {port} - {len(TOOLS)} 个工具")
     try:
         server.serve_forever()
