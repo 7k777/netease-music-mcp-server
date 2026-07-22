@@ -1,8 +1,8 @@
 """
-网易云音乐 MCP Server — SSE 模式
+网易云音乐 MCP Server — Streamable HTTP
 """
 
-import json, os, random, base64, urllib.request, urllib.parse, time
+import json, os, random, base64, urllib.request, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
@@ -27,7 +27,6 @@ def encrypt_params(params):
     return {"params": aes_encrypt(aes_encrypt(text, NONCE), k), "encSecKey": rsa_encrypt(k)}
 
 def weapi(ep, data):
-    data = data or {}
     data["csrf_token"] = ""
     body = urllib.parse.urlencode(encrypt_params(data)).encode()
     req = urllib.request.Request(f"https://music.163.com/weapi{ep}", data=body, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com/", "Content-Type": "application/x-www-form-urlencoded"})
@@ -57,16 +56,12 @@ def do_call(name, args):
             t += f"\n{i}. {s.get('name')} - {ar}" + (f" [{al}]" if al else "") + f" ({d//60000}:{(d%60000)//1000:02d}) [ID:{s.get('id')}]"
         return {"content": [{"type": "text", "text": t}]}
     elif name == "get_song_detail":
-        sid = args["song_id"]
-        r = weapi("/v3/song/detail", {"c": json.dumps([{"id": sid}]), "ids": [sid]})
+        r = weapi("/v3/song/detail", {"c": json.dumps([{"id": args["song_id"]}]), "ids": [args["song_id"]]})
         ss = r.get("songs", [])
         if not ss:
-            return {"content": [{"type": "text", "text": f"未找到"}], "isError": True}
+            return {"content": [{"type": "text", "text": "未找到"}], "isError": True}
         s = ss[0]
-        ar = "/".join(a.get("name", "") for a in s.get("ar", []))
-        al = s.get("al", {}).get("name", "")
-        d = s.get("dt", 0)
-        return {"content": [{"type": "text", "text": f"歌曲：{s.get('name')}\n歌手：{ar}\n专辑：{al}\n时长：{d//60000}:{(d%60000)//1000:02d}\nID：{sid}"}]}
+        return {"content": [{"type": "text", "text": f"歌曲：{s.get('name')}\n歌手：{'/'.join(a.get('name','') for a in s.get('ar',[]))}\n专辑：{s.get('al',{}).get('name','')}\n时长：{s.get('dt',0)//60000}:{(s.get('dt',0)%60000)//1000:02d}\nID：{args['song_id']}"}]}
     elif name == "get_lyric":
         r = weapi("/song/lyric", {"id": args["song_id"], "lv": -1, "kv": -1, "tv": -1})
         lyric = (r.get("lrc", {}) or {}).get("lyric", "") or ""
@@ -83,48 +78,47 @@ def do_call(name, args):
     elif name == "get_playlist":
         r = weapi("/v6/playlist/detail", {"id": args["playlist_id"], "n": 100, "s": 8})
         pl = r.get("playlist", {}) or {}
-        t = f"歌单：{pl.get('name')}\n创建者：{(pl.get('creator', {}) or {}).get('nickname', '')}\n歌曲数：{pl.get('trackCount', 0)}\n播放量：{pl.get('playCount', 0)}"
-        tr = pl.get("tracks", [])[:int(args.get("max_songs", 30))]
+        t = f"歌单：{pl.get('name')}\n创建者：{(pl.get('creator',{}) or {}).get('nickname','')}\n歌曲数：{pl.get('trackCount',0)}\n播放量：{pl.get('playCount',0)}"
+        tr = pl.get("tracks", [])[:int(args.get("max_songs",30))]
         if tr:
             t += f"\n\n歌曲列表（前{len(tr)}首）："
             for i, s in enumerate(tr, 1):
-                ar = "/".join(a.get("name", "") for a in s.get("ar", []))
-                d = s.get("dt", 0)
+                ar = "/".join(a.get("name","") for a in s.get("ar",[]))
+                d = s.get("dt",0)
                 t += f"\n{i}. {s.get('name')} - {ar} ({d//60000}:{(d%60000)//1000:02d}) [ID:{s.get('id')}]"
         return {"content": [{"type": "text", "text": t}]}
     elif name == "search_playlists":
-        kw = args.get("keyword", "")
-        lim = min(int(args.get("limit", 10)), 30)
+        kw = args.get("keyword","")
+        lim = min(int(args.get("limit",10)),30)
         r = weapi("/search/get", {"s": kw, "type": 1000, "limit": lim, "offset": 0})
-        ps = r.get("result", {}).get("playlists", [])
+        ps = r.get("result",{}).get("playlists",[])
         t = f'搜索歌单 "{kw}" 结果：'
-        for i, p in enumerate(ps, 1):
-            t += f"\n{i}. {p.get('name')} - {(p.get('creator', {}) or {}).get('nickname', '')} ({p.get('trackCount', 0)}首) [ID:{p.get('id')}]"
+        for i, p in enumerate(ps,1):
+            t += f"\n{i}. {p.get('name')} - {(p.get('creator',{}) or {}).get('nickname','')} ({p.get('trackCount',0)}首) [ID:{p.get('id')}]"
         return {"content": [{"type": "text", "text": t}]}
     elif name == "recommend_playlists":
-        r = weapi("/playlist/list", {"cat": "全部", "limit": 10, "offset": 0, "order": "hot"})
-        ps = r.get("playlists", [])
+        r = weapi("/playlist/list", {"cat":"全部","limit":10,"offset":0,"order":"hot"})
         t = "热门歌单推荐："
-        for i, p in enumerate(ps, 1):
-            t += f"\n{i}. {p.get('name')}（{p.get('trackCount', 0)}首 · {p.get('playCount', 0)}次播放）[ID:{p.get('id')}]"
+        for i, p in enumerate(r.get("playlists",[]),1):
+            t += f"\n{i}. {p.get('name')}（{p.get('trackCount',0)}首·{p.get('playCount',0)}次播放）[ID:{p.get('id')}]"
         return {"content": [{"type": "text", "text": t}]}
     elif name == "search_artist":
-        kw = args.get("keyword", "")
-        r = weapi("/search/get", {"s": kw, "type": 100, "limit": 10, "offset": 0})
-        as_ = r.get("result", {}).get("artists", [])
+        kw = args.get("keyword","")
+        r = weapi("/search/get", {"s": kw, "type":100, "limit":10, "offset":0})
+        as_ = r.get("result",{}).get("artists",[])
         if not as_:
-            return {"content": [{"type": "text", "text": f'未找到 "{kw}"'}], "isError": True}
+            return {"content": [{"type":"text","text":f'未找到 "{kw}"'}],"isError":True}
         a = as_[0]
         t = f"歌手：{a.get('name')}\nID：{a.get('id')}"
-        h = weapi("/artist/top/song", {"id": a.get("id"), "limit": 10, "offset": 0})
+        h = weapi("/artist/top/song", {"id": a.get("id"), "limit":10, "offset":0})
         if h.get("code") == 200:
-            hs = h.get("songs", [])
+            hs = h.get("songs",[])
             if hs:
                 t += "\n\n热门歌曲："
-                for i, s in enumerate(hs, 1):
+                for i, s in enumerate(hs,1):
                     t += f"\n{i}. {s.get('name')} [ID:{s.get('id')}]"
-        return {"content": [{"type": "text", "text": t}]}
-    return {"content": [{"type": "text", "text": f"未知工具"}], "isError": True}
+        return {"content": [{"type":"text","text":t}]}
+    return {"content": [{"type":"text","text":"未知工具"}],"isError":True}
 
 
 class H(BaseHTTPRequestHandler):
@@ -145,22 +139,7 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(f"event: session\ndata: {json.dumps({'session_id': 'netease-mcp-1'})}\n\n".encode())
-        self.wfile.write(f"event: endpoint\ndata: /\n\n".encode())
-        self.wfile.flush()
-        try:
-            while True:
-                time.sleep(15)
-                self.wfile.write(f": heartbeat\n\n".encode())
-                self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        self._j({"ok": True})
 
     def do_POST(self):
         cl = int(self.headers.get("Content-Length", 0))
@@ -168,7 +147,7 @@ class H(BaseHTTPRequestHandler):
         try:
             body = json.loads(raw)
         except:
-            return self._j({"jsonrpc": "2.0", "error": {"code": -32700, "message": "无效JSON"}}, 400)
+            return self._j({"jsonrpc": "2.0", "error": {"code": -32700}}, 400)
 
         m = body.get("method", "")
         i = body.get("id")
@@ -186,17 +165,13 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._j({"jsonrpc": "2.0", "id": i, "error": {"code": -32000, "message": str(e)}})
         else:
-            return self._j({"jsonrpc": "2.0", "id": i, "error": {"code": -32601, "message": f"未知: {m}"}})
+            return self._j({"jsonrpc": "2.0", "id": i, "error": {"code": -32601}})
 
     def log_message(self, fmt, *a):
         print(f"[MCP] {fmt % a}")
 
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     srv = ThreadingHTTPServer(("0.0.0.0", port), H)
-    print(f"🎵 网易云 MCP 端口 {port} 共{len(TOOLS)}工具")
-    try:
-        srv.serve_forever()
-    except KeyboardInterrupt:
-        srv.server_close()
+    print(f"🎵 网易云 MCP 端口{port}")
+    srv.serve_forever()
