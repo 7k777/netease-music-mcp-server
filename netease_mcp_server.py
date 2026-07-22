@@ -1,15 +1,16 @@
 """
-网易云音乐 MCP Server
-=====================
-基于 Python FastMCP，内置网易云音乐 API 加密逻辑。
-支持 SSE 模式，适用于 RikkaHub 等只支持 HTTP/SSE 的 MCP 客户端。
+网易云音乐 API 服务
+===================
+基于 FastAPI，提供网易云音乐的 HTTP 接口。
+内置 API 加密逻辑，无需额外部署后端服务。
 
 使用方法：
   pip install -r requirements.txt
   python netease_mcp_server.py
 
-服务启动后默认监听 http://0.0.0.0:8000
-RikkaHub MCP 配置地址填：http://<你的IP>:8000/mcp
+RikkaHub 配置：
+  - 类型: HTTP
+  - URL: https://你的域名.onrender.com
 """
 
 import json
@@ -21,7 +22,16 @@ import httpx
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
 
-from mcp.server.fastmcp import FastMCP
+from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="网易云音乐 API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ============================================================
 # 网易云音乐 API 加密工具
@@ -81,7 +91,7 @@ class NeteaseAPI:
     def __init__(self):
         self.client = httpx.AsyncClient(
             headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Referer": "https://music.163.com/",
                 "Content-Type": "application/x-www-form-urlencoded",
             },
@@ -97,223 +107,181 @@ class NeteaseAPI:
         resp = await self.client.post(url, data=encrypted)
         return resp.json()
 
-    async def search_songs(self, keyword: str, limit: int = 20, offset: int = 0) -> dict:
-        data = {"s": keyword, "type": 1, "limit": limit, "offset": offset}
-        return await self._weapi_request("/search/get", data)
 
-    async def get_song_detail(self, song_id: int) -> dict:
-        data = {"c": json.dumps([{"id": song_id}]), "ids": [song_id]}
-        return await self._weapi_request("/v3/song/detail", data)
-
-    async def get_lyric(self, song_id: int) -> dict:
-        data = {"id": song_id, "lv": -1, "kv": -1, "tv": -1}
-        return await self._weapi_request("/song/lyric", data)
-
-    async def get_playlist_detail(self, playlist_id: int) -> dict:
-        data = {"id": playlist_id, "n": 100, "s": 8}
-        return await self._weapi_request("/v6/playlist/detail", data)
-
-    async def get_top_playlists(self, cat: str = "全部", limit: int = 20, offset: int = 0) -> dict:
-        data = {"cat": cat, "limit": limit, "offset": offset, "order": "hot"}
-        return await self._weapi_request("/playlist/list", data)
-
-
-# ============================================================
-# MCP Server
-# ============================================================
-
-mcp = FastMCP("netease-music")
 api = NeteaseAPI()
 
 
-def _format_song(item: dict) -> str:
-    artists = "/".join(a.get("name", "未知") for a in item.get("artists", item.get("ar", [])))
-    album = ""
-    if "album" in item:
-        album = item["album"].get("name", "")
-    elif "al" in item:
-        album = item["al"].get("name", "")
-    song_id = item.get("id", "")
-    name = item.get("name", "未知")
-    duration = item.get("duration", item.get("dt", 0))
-    mins = duration // 60000
-    secs = (duration % 60000) // 1000
-    return f"{name} — {artists}" + (f" [{album}]" if album else "") + f" ({mins}:{secs:02d}) [ID: {song_id}]"
+# ============================================================
+# HTTP 接口
+# ============================================================
+
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "netease-music-api"}
 
 
-@mcp.tool()
-async def netease_search_songs(keyword: str, limit: int = 20) -> str:
-    """搜索网易云音乐中的歌曲，返回歌曲列表（含ID、歌手、专辑、时长）。参数：keyword-搜索关键词，limit-返回数量(最大50)"""
+@app.get("/search/songs")
+async def search_songs(keyword: str = Query(..., description="搜索关键词"), limit: int = Query(20, description="返回数量")):
+    """搜索歌曲"""
     if limit > 50:
         limit = 50
-    result = await api.search_songs(keyword, limit=limit)
+    result = await api._weapi_request("/search/get", {
+        "s": keyword, "type": 1, "limit": limit, "offset": 0,
+    })
     if result.get("code") != 200:
-        return f"搜索失败：{result.get('message', '未知错误')}"
+        return {"error": result.get("message", "未知错误")}
     songs = result.get("result", {}).get("songs", [])
-    if not songs:
-        return f'没有找到与 "{keyword}" 相关的歌曲。'
-    lines = [f'搜索 "{keyword}" 结果（共 {len(songs)} 首）：']
-    for i, song in enumerate(songs, 1):
-        lines.append(f"{i}. {_format_song(song)}")
-    return "\n".join(lines)
+    formatted = []
+    for s in songs:
+        artists = "/".join(a.get("name", "未知") for a in s.get("artists", s.get("ar", [])))
+        album = s.get("album", s.get("al", {}))
+        album_name = album.get("name", "") if album else ""
+        formatted.append({
+            "id": s.get("id"),
+            "name": s.get("name"),
+            "artists": artists,
+            "album": album_name,
+            "duration": s.get("duration", s.get("dt", 0)),
+        })
+    return {"songs": formatted, "total": len(formatted)}
 
 
-@mcp.tool()
-async def netease_get_song_detail(song_id: int) -> str:
-    """获取网易云音乐歌曲的详细信息（歌手、专辑、时长、歌词预览）。参数：song_id-歌曲ID"""
-    result = await api.get_song_detail(song_id)
+@app.get("/song/{song_id}")
+async def song_detail(song_id: int):
+    """获取歌曲详情"""
+    data = {"c": json.dumps([{"id": song_id}]), "ids": [song_id]}
+    result = await api._weapi_request("/v3/song/detail", data)
     if result.get("code") != 200:
-        return f"获取失败：{result.get('message', '未知错误')}"
+        return {"error": result.get("message", "未知错误")}
     songs = result.get("songs", [])
     if not songs:
-        return f"未找到 ID 为 {song_id} 的歌曲。"
-    song = songs[0]
-    artists = "/".join(a.get("name", "未知") for a in song.get("ar", []))
-    album = song.get("al", {})
-    album_name = album.get("name", "未知专辑")
-    duration = song.get("dt", 0)
-    mins = duration // 60000
-    secs = (duration % 60000) // 1000
-    lines = [f"歌曲：{song.get('name', '未知')}", f"歌手：{artists}", f"专辑：{album_name}", f"时长：{mins}:{secs:02d}", f"ID：{song_id}"]
-    try:
-        lyric_result = await api.get_lyric(song_id)
-        if lyric_result.get("code") == 200:
-            lrc = lyric_result.get("lrc", {})
-            if lrc.get("lyric"):
-                first_lines = lrc["lyric"].strip().split("\n")[:8]
-                lyrics_text = "\n".join(line.split("]", 1)[-1] if "]" in line else line for line in first_lines)
-                lines.append(f"\n歌词预览：\n{lyrics_text}")
-    except Exception:
-        pass
-    return "\n".join(lines)
+        return {"error": "未找到歌曲"}
+    s = songs[0]
+    artists = "/".join(a.get("name", "未知") for a in s.get("ar", []))
+    album = s.get("al", {})
+    return {
+        "id": s.get("id"),
+        "name": s.get("name"),
+        "artists": artists,
+        "album": album.get("name", "未知专辑"),
+        "duration": s.get("dt", 0),
+        "pic_url": album.get("picUrl", ""),
+    }
 
 
-@mcp.tool()
-async def netease_get_lyric(song_id: int) -> str:
-    """获取网易云音乐歌曲的完整歌词（纯文本，不含时间戳）。参数：song_id-歌曲ID"""
-    result = await api.get_lyric(song_id)
+@app.get("/lyric/{song_id}")
+async def lyric(song_id: int):
+    """获取歌词"""
+    result = await api._weapi_request("/song/lyric", {
+        "id": song_id, "lv": -1, "kv": -1, "tv": -1,
+    })
     if result.get("code") != 200:
-        return f"获取歌词失败"
+        return {"error": "获取歌词失败"}
     lrc = result.get("lrc", {})
     lyric_text = lrc.get("lyric", "")
-    if not lyric_text:
-        return "该歌曲暂无歌词。"
-    pure_lines = []
-    for line in lyric_text.strip().split("\n"):
-        clean = line
-        while "[" in clean and "]" in clean:
-            start = clean.find("[")
-            end = clean.find("]") + 1
-            clean = clean[end:].strip()
-        if clean:
-            pure_lines.append(clean)
-    return "\n".join(pure_lines) if pure_lines else "该歌曲暂无歌词。"
+    return {"lyric": lyric_text}
 
 
-@mcp.tool()
-async def netease_get_playlist(playlist_id: int, max_songs: int = 30) -> str:
-    """获取网易云音乐歌单的详细信息，包括歌单中的所有歌曲。参数：playlist_id-歌单ID，max_songs-最多返回歌曲数"""
-    result = await api.get_playlist_detail(playlist_id)
+@app.get("/playlist/{playlist_id}")
+async def playlist_detail(playlist_id: int):
+    """获取歌单详情"""
+    result = await api._weapi_request("/v6/playlist/detail", {
+        "id": playlist_id, "n": 100, "s": 8,
+    })
     if result.get("code") != 200:
-        return f"获取歌单失败"
+        return {"error": "获取歌单失败"}
     pl = result.get("playlist", {})
-    name = pl.get("name", "未知歌单")
-    description = pl.get("description", "") or ""
-    track_count = pl.get("trackCount", 0)
-    play_count = pl.get("playCount", 0)
-    creator = pl.get("creator", {}).get("nickname", "未知")
-    lines = [f"歌单：{name}", f"创建者：{creator}", f"歌曲数：{track_count}", f"播放量：{play_count}"]
-    if description:
-        lines.append(f"简介：{description[:200]}")
-    tracks = pl.get("tracks", [])[:max_songs]
-    if tracks:
-        lines.append(f"\n歌曲列表（前 {len(tracks)} 首）：")
-        for i, song in enumerate(tracks, 1):
-            lines.append(f"{i}. {_format_song(song)}")
-    else:
-        lines.append("歌单暂无歌曲。")
-    return "\n".join(lines)
+    tracks = pl.get("tracks", [])
+    formatted_tracks = []
+    for s in tracks:
+        artists = "/".join(a.get("name", "未知") for a in s.get("ar", []))
+        formatted_tracks.append({
+            "id": s.get("id"),
+            "name": s.get("name"),
+            "artists": artists,
+            "duration": s.get("dt", 0),
+        })
+    return {
+        "id": pl.get("id"),
+        "name": pl.get("name"),
+        "creator": pl.get("creator", {}).get("nickname", "未知"),
+        "track_count": pl.get("trackCount", 0),
+        "play_count": pl.get("playCount", 0),
+        "tracks": formatted_tracks,
+    }
 
 
-@mcp.tool()
-async def netease_search_playlists(keyword: str, limit: int = 10) -> str:
-    """搜索网易云音乐的歌单，按关键词返回歌单列表。参数：keyword-搜索关键词，limit-返回数量(最大30)"""
+@app.get("/search/playlists")
+async def search_playlists(keyword: str = Query(..., description="搜索关键词"), limit: int = Query(10, description="返回数量")):
+    """搜索歌单"""
     if limit > 30:
         limit = 30
-    result = await api._weapi_request("/search/get", {"s": keyword, "type": 1000, "limit": limit, "offset": 0})
+    result = await api._weapi_request("/search/get", {
+        "s": keyword, "type": 1000, "limit": limit, "offset": 0,
+    })
     if result.get("code") != 200:
-        return f"搜索失败"
+        return {"error": result.get("message", "未知错误")}
     playlists = result.get("result", {}).get("playlists", [])
-    if not playlists:
-        return f'没有找到与 "{keyword}" 相关的歌单。'
-    lines = [f'搜索歌单 "{keyword}" 结果：']
-    for i, pl in enumerate(playlists, 1):
-        name = pl.get("name", "未知")
-        pl_id = pl.get("id", "")
-        track_count = pl.get("trackCount", 0)
-        creator = pl.get("creator", {}).get("nickname", "未知")
-        lines.append(f"{i}. {name} — {creator}（{track_count}首）[ID: {pl_id}]")
-    return "\n".join(lines)
+    formatted = [{
+        "id": p.get("id"),
+        "name": p.get("name"),
+        "creator": p.get("creator", {}).get("nickname", "未知"),
+        "track_count": p.get("trackCount", 0),
+        "play_count": p.get("playCount", 0),
+    } for p in playlists]
+    return {"playlists": formatted}
 
 
-@mcp.tool()
-async def netease_recommend_playlists() -> str:
-    """获取网易云音乐的热门推荐歌单"""
-    hot = await api.get_top_playlists(limit=10)
-    if hot.get("code") == 200:
-        pls = hot.get("playlists", [])
-        lines = ["热门歌单推荐："]
-        for i, pl in enumerate(pls, 1):
-            name = pl.get("name", "未知")
-            pl_id = pl.get("id", "")
-            track_count = pl.get("trackCount", 0)
-            play_count = pl.get("playCount", 0)
-            lines.append(f"{i}. {name}（{track_count}首 · {play_count}次播放）[ID: {pl_id}]")
-        return "\n".join(lines)
-    return "获取推荐失败"
-
-
-@mcp.tool()
-async def netease_search_artist(keyword: str) -> str:
-    """搜索网易云音乐歌手，返回歌手信息和热门歌曲。参数：keyword-歌手名称"""
-    result = await api._weapi_request("/search/get", {"s": keyword, "type": 100, "limit": 10, "offset": 0})
+@app.get("/recommend/playlists")
+async def recommend_playlists():
+    """推荐歌单"""
+    result = await api._weapi_request("/playlist/list", {
+        "cat": "全部", "limit": 10, "offset": 0, "order": "hot",
+    })
     if result.get("code") != 200:
-        return f"搜索失败"
+        return {"error": "获取失败"}
+    playlists = result.get("playlists", [])
+    formatted = [{
+        "id": p.get("id"),
+        "name": p.get("name"),
+        "track_count": p.get("trackCount", 0),
+        "play_count": p.get("playCount", 0),
+    } for p in playlists]
+    return {"playlists": formatted}
+
+
+@app.get("/search/artist")
+async def search_artist(keyword: str = Query(..., description="歌手名称")):
+    """搜索歌手"""
+    result = await api._weapi_request("/search/get", {
+        "s": keyword, "type": 100, "limit": 10, "offset": 0,
+    })
+    if result.get("code") != 200:
+        return {"error": result.get("message", "未知错误")}
     artists = result.get("result", {}).get("artists", [])
     if not artists:
-        return f'没有找到歌手 "{keyword}"。'
-    artist = artists[0]
-    artist_id = artist.get("id", "")
-    artist_name = artist.get("name", "未知")
-    lines = [f"歌手：{artist_name}", f"ID：{artist_id}"]
-    hot_result = await api._weapi_request("/artist/top/song", {"id": artist_id, "limit": 10, "offset": 0})
+        return {"error": f'没有找到歌手 "{keyword}"'
+    }
+    a = artists[0]
+    hot_result = await api._weapi_request("/artist/top/song", {
+        "id": a.get("id"), "limit": 10, "offset": 0,
+    })
+    hot_songs = []
     if hot_result.get("code") == 200:
-        hot_songs = hot_result.get("songs", [])
-        if hot_songs:
-            lines.append("\n热门歌曲：")
-            for i, song in enumerate(hot_songs, 1):
-                lines.append(f"{i}. {_format_song(song)}")
-    return "\n".join(lines)
+        for s in hot_result.get("songs", []):
+            hot_songs.append({
+                "id": s.get("id"),
+                "name": s.get("name"),
+            })
+    return {
+        "id": a.get("id"),
+        "name": a.get("name"),
+        "hot_songs": hot_songs,
+    }
 
-
-# ============================================================
-# 启动
-# ============================================================
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    
-    print(f"🎵 网易云音乐 MCP Server")
-    print(f"   端口: {port}")
-    print(f"   地址: 0.0.0.0:{port}")
-    print("=" * 40)
-    
     import uvicorn
-    app = mcp.sse_app()
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        proxy_headers=True,
-        forwarded_allow_ips="*",
-    )
+    port = int(os.environ.get("PORT", 8000))
+    print(f"🎵 网易云音乐 API 服务启动", f"端口: {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
