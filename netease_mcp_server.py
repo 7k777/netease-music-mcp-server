@@ -151,7 +151,23 @@ class Handler(BaseHTTPRequestHandler):
         self._json({})
 
     def do_GET(self):
-        self._json({"status": "ok", "service": "netease-music-mcp"})
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        session = json.dumps({"session_id": "netease-mcp-1"})
+        self.wfile.write(f"event: session\ndata: {session}\n\n".encode())
+        self.wfile.flush()
+        import time
+        try:
+            while True:
+                self.wfile.write(": heartbeat\n\n".encode())
+                self.wfile.flush()
+                time.sleep(15)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_POST(self):
         content_len = int(self.headers.get("Content-Length", 0))
