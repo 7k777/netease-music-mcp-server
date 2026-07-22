@@ -2,7 +2,7 @@
 网易云音乐 MCP Server — Streamable HTTP
 """
 
-import json, os, random, base64, urllib.request, urllib.parse, time
+import json, os, random, base64, urllib.request, urllib.parse, time, socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
@@ -206,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
-    """支持多线程的 HTTP 服务器"""
+    """多线程 HTTP 服务器"""
     pass
 
 
