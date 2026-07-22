@@ -160,7 +160,6 @@ class Handler(BaseHTTPRequestHandler):
         session = json.dumps({"session_id": "netease-mcp-1"})
         self.wfile.write(f"event: session\ndata: {session}\n\n".encode())
         self.wfile.flush()
-        import time
         try:
             while True:
                 self.wfile.write(": heartbeat\n\n".encode())
