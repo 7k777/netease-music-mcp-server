@@ -305,16 +305,15 @@ if __name__ == "__main__":
     
     print(f"🎵 网易云音乐 MCP Server")
     print(f"   端口: {port}")
-    print(f"   地址: http://0.0.0.0:{port}/mcp")
+    print(f"   地址: 0.0.0.0:{port}")
     print("=" * 40)
     
-    # 用 uvicorn 手动启动，避免 mcp.run() 的版本兼容问题
-    try:
-        import uvicorn
-        # 新版 mcp: 用 sse_app() 获取 ASGI 应用
-        app = mcp.sse_app()
-        uvicorn.run(app, host="0.0.0.0", port=port)
-    except (ImportError, AttributeError):
-        # 旧版 mcp: 直接用 run()，不传 host/port 参数
-        print("提示: 如需指定端口，请安装 uvicorn: pip install uvicorn")
-        mcp.run(transport="sse")
+    import uvicorn
+    app = mcp.sse_app()
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
