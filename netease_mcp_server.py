@@ -206,7 +206,11 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    server = HTTPServer(("0.0.0.0", port), Handler)
+    from socketserver import ThreadingMixIn
+    class ThreadedServer(ThreadingMixIn, HTTPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+    server = ThreadedServer(("0.0.0.0", port), Handler)
     print(f"🎵 网易云 MCP Server - 端口 {port} - {len(TOOLS)} 个工具")
     try:
         server.serve_forever()
